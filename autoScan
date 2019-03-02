@@ -1,0 +1,141 @@
+clear;
+import tool.*;
+IMPA.inst=getInstruments();
+load('root.mat')
+%% to do  %%%%%%%%%%%%%%%%%%%%%%%%%%
+fs_start=6.2e9;
+fs_stop=6.48e9;
+IMPA.paras.step1.Flux_data=-0.47:0.006:-0.25;
+IMPA.paras.step1.Pp_data = -25:1.5:10;
+%% %%%%%%%%%%%%%%%%%%%%%
+fs=fs_start;
+while fs<=fs_stop
+    IMPA=init(IMPA);
+    IMPA.paras.fs=fs;
+    date_str=datestr(now,'yyyy-mm-dd HH.MM.SS');
+    %%%%%%%%%%%%%%%%%%%%%%%%%%
+    message=sprintf('fs=%gGHz',fs/1e9);
+    hwait1 = waitbar(0,message,'Position',[200 500 300 80],'Name','Running');
+    hax = findobj(hwait1, 'type','axes');
+    htext = get(hax,'title');
+    set(htext,'fontsize',20)
+    %%%%%%%%%%%%%%%%%%%%%%%%%%
+%% step1 detuning
+    L1=length(IMPA.paras.step1.detuning_data);
+    for i=1:L1
+        IMPA.paras.step1.detuning=IMPA.paras.step1.detuning_data(i);
+        %%%%%%%%%%%%%%%%%%%%%%%%%%
+        message=sprintf('testing fs=%gGHz\n step1 running,detuning=%gMHz',fs/1e9,IMPA.paras.step1.detuning/1e6);
+        set(hwait1,'Position',[200 500 350 105])
+        waitbar(i/4,hwait1,message);
+        set(htext,'Position',[60 2])
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%
+        IMPA=step1(IMPA);
+        while ~isempty(IMPA.paras.step1.feedback)
+            i=1;
+            IMPA.paras.step1.detuning=IMPA.paras.step1.detuning_data(i);
+            IMPA=step1(IMPA);
+        end
+        IMPA.results.step1.gain{i}= IMPA.results.step1.Gain;
+        [IMPA.results.step1.index1{i},IMPA.results.step1.index2{i}]=find(IMPA.results.step1.Gain>=IMPA.paras.step1.threshold);
+        if isempty(IMPA.results.step1.index1{i})
+            message=sprintf('testing fs=%gGHz\n step1 finished',fs/1e9);
+            waitbar(1,hwait1,message);
+            break
+        end
+    end
+%% step2 bandwidth
+    if i>=3
+        [IMPA]=step1TOstep2(IMPA);
+        if ~isempty(IMPA.paras.step2.Index2)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%
+            message=sprintf('testing fs=%gGHz\n step1 finished\n step2 running',fs/1e9);
+            set(hwait1,'Position',[200 500 300 130])
+            waitbar(1/4,hwait1,message);
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%
+            [IMPA]=step2(IMPA,500);
+%% step3 scan fp
+            if IMPA.step3flag
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%
+                message=sprintf('testing fs=%gGHz\n step1 finished\n step2 finished\n step3 running',fs/1e9);
+                set(hwait1,'Position',[200 500 300 155])
+                waitbar(1/2,hwait1,message);
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% laegest bandwidth>300 :step3
+                k31=IMPA.paras.step3.maxBWindex;
+                x31=IMPA.paras.step3.index_x1;
+                y31=IMPA.paras.step3.index_y1;
+                IMPA.paras.step3.Flux=IMPA.paras.step2.Flux_data{k31}(y31);
+                IMPA.paras.step3.Pp=IMPA.paras.step2.Pp_data{k31}(x31);
+                [IMPA]=step3(IMPA,500);
+%% laegest bandwidth>300 :step4 saturation
+                if IMPA.results.step3.SinglePlot.Counts>0
+                    [sort_BW,Counts_index1]=sort(IMPA.results.step3.SinglePlot.BW,'descend');
+                    x41=IMPA.results.step3.SinglePlot.Index(Counts_index1(1));
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    message=sprintf('testing fs=%gGHz\n step1 finished\n step2 finished\n step3 finished\n step4 runnig',fs/1e9);
+                    set(hwait1,'Position',[200 500 300 180])
+                    waitbar(3/4,hwait1,message);
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    IMPA.paras.step4.Pp=IMPA.paras.step3.Pp;
+                    IMPA.paras.step4.Flux=IMPA.paras.step3.Flux;                   
+                    IMPA.paras.step4.fp=IMPA.paras.step3.fp_data(x41);
+                    [IMPA]=step4(IMPA,500);
+                end
+%% flattest bandwidth>300 :step3
+                k32=IMPA.paras.step3.minFLATindex;
+                x32=IMPA.paras.step3.index_x2;
+                y32=IMPA.paras.step3.index_y2;
+                if ~(x31==x32&&y31==y32&&k31==k32)
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    message=sprintf('testing fs=%gGHz\n step1 finished\n step2 finished\n step3 running',fs/1e9);
+                    set(hwait1,'Position',[200 500 300 155])
+                    waitbar(1/2,hwait1,message);
+                    %%%%%%%%%%%%%%%%%%%%%%%%%%%
+                    IMPA.paras.step3.Flux=IMPA.paras.step2.Flux_data{k32}(y32);
+                    IMPA.paras.step3.Pp=IMPA.paras.step2.Pp_data{k32}(x32);
+                    [IMPA]=step3(IMPA,500);
+%% flattest bandwidth>300 :step4 saturation
+                    if IMPA.results.step3.SinglePlot.Counts>0
+                        %%%%%%%%%%%%%%%%%%%%%%%%%%%
+                        message=sprintf('testing fs=%gGHz\n step1 finished\n step2 finished\n step3 finished\n step4 runnig',fs/1e9);
+                        set(hwait1,'Position',[200 500 300 180])
+                        waitbar(3/4,hwait1,message);
+                        %%%%%%%%%%%%%%%%%%%%%%%%%%%
+                        [~,Counts_index2]=sort(IMPA.results.step3.SinglePlot.Flat,'ascend');
+                        x42=IMPA.results.step3.SinglePlot.Index(Counts_index2(1));
+                        IMPA.paras.step4.fp=IMPA.paras.step3.fp_data(x42);
+                        [IMPA]=step4(IMPA,500);
+                    end  
+                end
+                save([ROOT,'fs=',num2str(IMPA.paras.fs/1e9),'GHz',date_str,'_data.mat'],'IMPA')
+                message=sprintf('finished testing fs=%gGHz\n moving to next fs=%gGHz',fs/1e9,fs/1e9+0.02);
+                set(hwait1,'Position',[200 500 300 105])
+                waitbar(1,hwait1,message);
+                fs=fs+0.02e9;
+                delete(hwait1);
+            else
+                save([ROOT,'fs=',num2str(IMPA.paras.fs/1e9),'GHz',date_str,'_data.mat'],'IMPA')
+                message=sprintf('finished testing fs=%gGHz\n moving to next fs=%gGHz',fs/1e9,fs/1e9+0.05);
+                set(hwait1,'Position',[200 500 300 105])
+                waitbar(0,hwait1,message);
+                fs=fs+0.05e9;
+                delete(hwait1);
+            end
+        else
+            save([ROOT,'fs=',num2str(IMPA.paras.fs/1e9),'GHz',date_str,'_data.mat'],'IMPA')
+            message=sprintf('finished testing fs=%gGHz\n moving to next fs=%gGHz',fs/1e9,fs/1e9+0.05);
+            set(hwait1,'Position',[200 500 300 105])
+            waitbar(0,hwait1,message);
+            fs=fs+0.05e9;
+            delete(hwait1);
+        end
+    else
+        save([ROOT,'fs=',num2str(IMPA.paras.fs/1e9),'GHz',date_str,'_data.mat'],'IMPA')
+        message=sprintf('finished testing fs=%gGHz\n moving to next fs=%gGHz',fs/1e9,fs/1e9+0.05);
+        set(hwait1,'Position',[200 500 300 105])
+        waitbar(0,hwait1,message);
+        fs=fs+0.05e9;
+        delete(hwait1);
+    end
+end
